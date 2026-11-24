@@ -58,7 +58,7 @@ Error GpioLine::setup(int p_line_fd, int p_offset, Direction p_direction, bool p
 	}
 	wake_fd = eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK);
 	if (wake_fd < 0) {
-		last_error = gpio_errno_message("création de l'eventfd du thread des fronts", errno);
+		last_error = gpio_errno_message(gpio_u8("création de l'eventfd du thread des fronts"), errno);
 		edges_enabled = false;
 		return ERR_CANT_CREATE;
 	}
@@ -95,7 +95,7 @@ void GpioLine::_edge_loop() {
 			break; // Demande d'arrêt.
 		}
 		if (fds[0].revents & (POLLERR | POLLHUP | POLLNVAL)) {
-			call_deferred("emit_signal", "line_error", String("la ligne GPIO ne répond plus (descripteur fermé ?)"));
+			call_deferred("emit_signal", "line_error", String(gpio_u8("la ligne GPIO ne répond plus (descripteur fermé ?)")));
 			break;
 		}
 		if ((fds[0].revents & (POLLIN | POLLPRI)) == 0) {
@@ -173,7 +173,7 @@ String GpioLine::get_last_error() const {
 
 int GpioLine::get_value() {
 	if (line_fd < 0) {
-		last_error = "ligne non réservée ou déjà libérée";
+		last_error = gpio_u8("ligne non réservée ou déjà libérée");
 		return -1;
 	}
 #ifdef __linux__
@@ -193,11 +193,11 @@ int GpioLine::get_value() {
 
 Error GpioLine::set_value(bool p_value) {
 	if (line_fd < 0) {
-		last_error = "ligne non réservée ou déjà libérée";
+		last_error = gpio_u8("ligne non réservée ou déjà libérée");
 		return ERR_UNCONFIGURED;
 	}
 	if (direction != DIRECTION_OUTPUT) {
-		last_error = "écriture refusée : la ligne est une entrée";
+		last_error = gpio_u8("écriture refusée : la ligne est une entrée");
 		return ERR_INVALID_PARAMETER;
 	}
 #ifdef __linux__
@@ -206,7 +206,7 @@ Error GpioLine::set_value(bool p_value) {
 	values.mask = 1;
 	values.bits = p_value ? 1 : 0;
 	if (ioctl(line_fd, GPIO_V2_LINE_SET_VALUES_IOCTL, &values) < 0) {
-		last_error = gpio_errno_message("écriture de la ligne", errno);
+		last_error = gpio_errno_message(gpio_u8("écriture de la ligne"), errno);
 		return FAILED;
 	}
 	return OK;

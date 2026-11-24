@@ -177,7 +177,7 @@ Error GpioChip::open(const String &p_chip) {
 #ifdef __linux__
 	const String wanted = p_chip.strip_edges();
 	if (wanted.is_empty()) {
-		last_error = "aucune puce GPIO indiquée";
+		last_error = gpio_u8("aucune puce GPIO indiquée");
 		return ERR_INVALID_PARAMETER;
 	}
 
@@ -207,7 +207,7 @@ Error GpioChip::open(const String &p_chip) {
 	}
 
 	if (target_path.empty()) {
-		last_error = "puce GPIO « " + wanted + " » introuvable (" + describe_available(chips) + ")";
+		last_error = gpio_u8("puce GPIO « ") + wanted + gpio_u8(" » introuvable (") + describe_available(chips) + ")";
 		if (access_errno != 0) {
 			last_error += ". Certaines puces sont inaccessibles : " +
 					gpio_errno_message("ouverture", access_errno);
@@ -286,7 +286,7 @@ Dictionary GpioChip::get_line_info(int p_offset) {
 		return result;
 	}
 	if (p_offset < 0 || p_offset >= line_count) {
-		last_error = "ligne " + itos(p_offset) + " hors limites (0 à " + itos(line_count - 1) + ")";
+		last_error = "ligne " + itos(p_offset) + gpio_u8(" hors limites (0 à ") + itos(line_count - 1) + ")";
 		return result;
 	}
 	struct gpio_v2_line_info info;
@@ -349,7 +349,7 @@ String GpioChip::_describe_line_user(int p_offset) {
 		return String();
 	}
 	const String consumer = info["consumer"];
-	return consumer.is_empty() ? String() : " (utilisée par « " + consumer + " »)";
+	return consumer.is_empty() ? String() : gpio_u8(" (utilisée par « ") + consumer + gpio_u8(" »)");
 }
 
 Ref<GpioLine> GpioChip::_request(int p_offset, uint64_t p_flags, int p_debounce_us, bool p_has_output_value,
@@ -361,7 +361,7 @@ Ref<GpioLine> GpioChip::_request(int p_offset, uint64_t p_flags, int p_debounce_
 		return line;
 	}
 	if (p_offset < 0 || p_offset >= line_count) {
-		last_error = "ligne " + itos(p_offset) + " hors limites pour " + label + " (0 à " + itos(line_count - 1) + ")";
+		last_error = "ligne " + itos(p_offset) + " hors limites pour " + label + gpio_u8(" (0 à ") + itos(line_count - 1) + ")";
 		return line;
 	}
 
@@ -390,7 +390,7 @@ Ref<GpioLine> GpioChip::_request(int p_offset, uint64_t p_flags, int p_debounce_
 
 	if (ioctl(chip_fd, GPIO_V2_GET_LINE_IOCTL, &request) < 0) {
 		const int err = errno;
-		last_error = gpio_errno_message("réservation de la ligne " + itos(p_offset) + " de " + label, err);
+		last_error = gpio_errno_message(gpio_u8("réservation de la ligne ") + itos(p_offset) + " de " + label, err);
 		if (err == EBUSY) {
 			last_error += _describe_line_user(p_offset);
 		}

@@ -283,9 +283,31 @@ Les `.so` sont écrits dans `project/addons/gpio/bin/`.
 La première compilation de godot-cpp prend plusieurs minutes ; les suivantes sont rapides.
 
 La CI GitHub (`.github/workflows/build.yml`) lance gdlint / gdformat, compile les quatre
-variantes (x86_64 et arm64, debug et release), lance le test du projet d'exemple en
-headless sous Linux (extension chargée, sans puce GPIO) et publie l'artefact `addon-gpio`
-prêt à copier.
+variantes avec zig (x86_64 et arm64, debug et release), lance le test du projet
+d'exemple en headless sous Godot Linux avec l'extension chargée (sans puce GPIO), une
+fois compilée avec gcc et une fois avec zig, puis publie l'artefact `addon-gpio` prêt à
+copier.
+
+Le job « paquet » dépend du stockage d'artefacts GitHub de l'organisation : si son quota
+est plein, il échoue (les compilations et les tests, eux, n'en dépendent pas).
+
+### Builds zig et builds gcc
+
+Les deux chaînes produisent une extension fonctionnelle (testées toutes les deux en CI).
+Particularité de zig : son runtime n'exécute pas les destructeurs statiques au
+déchargement de la bibliothèque, ce que fait `crtbeginS.o` avec gcc. Sans correctif,
+Godot plantait en quittant. `src/register_types.cpp` appelle donc `__cxa_finalize` pour
+les builds zig (macro `GPIO_ZIG_RUNTIME`, posée par le SConstruct).
+
+### Limite connue : plantage en quittant le premier import
+
+Avec l'extension chargée, Godot 4.7.2 sous Linux plante en quittant le **tout premier**
+import d'un projet (`godot --headless --import` sur un projet sans dossier `.godot`).
+L'import est alors déjà terminé ; le second import, l'ouverture de l'éditeur et le jeu
+sont propres (constaté en CI, avec gcc comme avec zig ; un import témoin sans
+l'extension ne plante pas). La cause exacte n'est pas encore identifiée : la pile est
+dans le nettoyage de fin de Godot, pas dans le code de l'extension. La CI tolère ce
+premier plantage et exige que le second import réussisse.
 
 ### Tests
 
@@ -309,15 +331,18 @@ godot --headless --path project res://tests/test_simulation.tscn   # code de sor
 
 ## Ce qui a été testé, et ce qui ne l'a pas été
 
-Testé lors de la création (sur un PC Windows 11) :
+Testé lors de la création :
 
 - gdlint et gdformat (gdtoolkit 4.5.0) : aucun problème ;
-- projet d'exemple et test headless avec Godot 4.7.2 Windows : mode simulation,
-  actions, touches de simulation, `set_pin` / `pulse` / `blink`, broches inconnues,
-  mode `NEVER` sans matériel (erreurs lisibles, aucun plantage) ;
-- compilation de la GDExtension en compilation croisée zig depuis Windows :
-  `linux.template_debug.x86_64`, `linux.template_release.arm64` et
-  `linux.template_debug.arm64` ; binaires inspectés (architecture ELF, symbole
+- projet d'exemple et test headless avec Godot 4.7.2 **Windows** (extension absente) :
+  mode simulation, actions, touches de simulation, `set_pin` / `pulse` / `blink`,
+  broches inconnues, mode `NEVER` sans matériel (erreurs lisibles, aucun plantage) ;
+- même test avec Godot 4.7.2 **Linux x86_64** en CI, **extension chargée** (builds gcc et
+  zig) : `is_supported()`, `list_chips()` (vide sur le runner), erreurs d'ouverture et de
+  réservation lisibles et bien encodées, bascule automatique en simulation faute de
+  puce, mode `NEVER` (chaque broche en erreur, le reste continue), sortie propre ;
+- compilation des quatre variantes (x86_64 / arm64, debug / release), en local depuis
+  Windows avec zig et en CI ; binaires inspectés (architecture ELF, symbole
   `gpio_library_init` exporté, libc++ liée statiquement, glibc 2.17 maximum requise) ;
 - sources de l'extension compilées sans avertissement en `-Wall -Wextra`, y compris la
   variante « hors Linux » (stubs).
@@ -325,11 +350,10 @@ Testé lors de la création (sur un PC Windows 11) :
 **Pas testé sur un vrai Raspberry Pi** (aucun Pi disponible) :
 
 - ouverture des puces `pinctrl-rp1` / `pinctrl-bcm2711`, réservation des lignes, lecture
-  et écriture, biais, actif bas, anti-rebond noyau, fronts et thread de surveillance ;
+  et écriture, biais, actif bas, anti-rebond noyau, fronts et thread de surveillance
+  (aucune puce GPIO sur les machines de test, le code ioctl n'a donc jamais été exercé) ;
 - droits du groupe `gpio` et messages d'erreur réels (EACCES, EBUSY) ;
-- chargement du `.so` arm64 par Godot sur le Pi, export arm64 ;
-- chargement du `.so` x86_64 dans un Godot Linux : vérifié seulement par la CI
-  (job « Test headless »), qui n'a pas encore tourné tant que le dépôt n'est pas poussé.
+- chargement du `.so` **arm64** par Godot (seul le x86_64 a été chargé), export arm64.
 
 Premier essai conseillé sur le Pi : lancer le projet d'exemple avec le panneau de
 diagnostic, vérifier « GPIO : matériel », puis `gpioinfo` pour voir les lignes `godot`.

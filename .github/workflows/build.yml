@@ -96,23 +96,13 @@ jobs:
           wget -q "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-stable/Godot_v${GODOT_VERSION}-stable_linux.x86_64.zip"
           unzip -q "Godot_v${GODOT_VERSION}-stable_linux.x86_64.zip"
           mv "Godot_v${GODOT_VERSION}-stable_linux.x86_64" godot
-      # Diagnostic : le même premier import, sans l'extension, pour savoir si elle est en cause.
-      - name: Import témoin sans l'extension
-        run: |
-          cp -r project /tmp/sans_extension
-          rm -rf /tmp/sans_extension/.godot /tmp/sans_extension/addons/gpio/gpio.gdextension*
-          ./godot --headless --path /tmp/sans_extension --import && echo "Témoin : OK" || echo "::warning::Témoin sans extension : code $?"
-      # En cas de plantage, on relance sous gdb pour obtenir une trace exploitable, puis on
-      # poursuit : le test ci-dessous (le jeu, pas l'éditeur) reste le critère décisif.
+      # Limite connue : avec l'extension, Godot 4.7.2 plante en quittant le tout PREMIER
+      # import d'un projet (l'import lui-même est terminé, le second est propre, le jeu aussi).
+      # On tolère donc ce premier plantage, mais le second import doit réussir.
       - name: Import du projet
         run: |
-          ./godot --headless --path project --import || {
-            echo "::warning::Godot a planté en quittant l'import (code $?) ; trace gdb ci-dessous."
-            sudo apt-get install -y -qq gdb > /dev/null
-            cp -r project /tmp/premier_import && rm -rf /tmp/premier_import/.godot
-            gdb -q -batch -ex run -ex "bt 30" --args ./godot --headless --path /tmp/premier_import --import
-            ./godot --headless --path project --import && echo "Second import : OK"
-          }
+          ./godot --headless --path project --import || echo "::warning::Premier import : Godot a quitté avec le code $? (limite connue, voir README)."
+          ./godot --headless --path project --import
       # Sur le runner, l'extension x86_64 est chargée mais il n'y a aucune puce GPIO :
       # l'autoload doit passer en simulation et l'extension renvoyer des erreurs lisibles.
       - name: Test

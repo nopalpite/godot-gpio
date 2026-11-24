@@ -136,6 +136,10 @@ func _test_extension() -> void:
 	var message: String = chip.call(&"get_last_error")
 	print("Erreur attendue : " + message)
 	_check(not message.is_empty(), "un message d'erreur lisible est fourni")
+	_check(
+		message.contains("« pinctrl-n-existe-pas »") and not message.contains("Â"),
+		"les accents des messages C++ sont en UTF-8"
+	)
 	var line: Variant = chip.call(&"request_input", 17)
 	_check(line == null, "réserver une ligne sur une puce fermée renvoie null")
 	print("Erreur attendue : " + str(chip.call(&"get_last_error")))
