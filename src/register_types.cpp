@@ -10,6 +10,23 @@
 
 using namespace godot;
 
+#if defined(__linux__)
+// Les destructeurs statiques (godot-cpp, libc++) sont enregistrés par __cxa_atexit avec
+// le __dso_handle de cette bibliothèque. Avec gcc, crtbeginS.o les exécute au
+// déchargement (dlclose) via __cxa_finalize. Le runtime de zig ne le fait pas : ils
+// restaient dans la liste atexit et Godot plantait en quittant, dans du code déjà
+// déchargé. On appelle donc __cxa_finalize nous-mêmes ; un second appel (build gcc)
+// ne fait rien, les entrées déjà exécutées étant retirées.
+extern "C" {
+extern void *__dso_handle;
+void __cxa_finalize(void *p_dso);
+}
+
+__attribute__((destructor)) static void gpio_library_finalize() {
+	__cxa_finalize(&__dso_handle);
+}
+#endif
+
 void initialize_gpio_module(ModuleInitializationLevel p_level) {
 	if (p_level != MODULE_INITIALIZATION_LEVEL_SCENE) {
 		return;
