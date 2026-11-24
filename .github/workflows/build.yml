@@ -67,6 +67,9 @@ jobs:
     name: Test headless (simulation, extension chargée)
     needs: lint
     runs-on: ubuntu-24.04
+    env:
+      # La glibc écrit ses erreurs fatales (ex. « free(): invalid pointer ») sur /dev/tty.
+      LIBC_FATAL_STDERR_: "1"
     steps:
       - uses: actions/checkout@v4
         with:
@@ -91,6 +94,7 @@ jobs:
           ./godot --headless --path project --import || {
             echo "::error::Godot a planté pendant l'import ; trace gdb ci-dessous."
             sudo apt-get install -y -qq gdb > /dev/null
+            rm -rf project/.godot  # même situation que le premier import
             gdb -q -batch -ex run -ex "thread apply all bt 30" --args ./godot --headless --verbose --path project --import
             exit 1
           }
