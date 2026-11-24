@@ -1,0 +1,30 @@
+[gd_resource type="Resource" script_class="GpioConfig" load_steps=6 format=3]
+
+[ext_resource type="Script" path="res://addons/gpio/gpio_config.gd" id="1_config"]
+[ext_resource type="Script" path="res://addons/gpio/gpio_pin.gd" id="2_pin"]
+
+[sub_resource type="Resource" id="Resource_bouton"]
+script = ExtResource("2_pin")
+name = &"bouton"
+line = 17
+active_low = true
+bias = 2
+debounce_ms = 20.0
+action = &"bouton_rouge"
+sim_key = 32
+
+[sub_resource type="Resource" id="Resource_led"]
+script = ExtResource("2_pin")
+name = &"led"
+line = 27
+direction = 1
+
+[sub_resource type="Resource" id="Resource_gyrophare"]
+script = ExtResource("2_pin")
+name = &"gyrophare"
+line = 22
+direction = 1
+
+[resource]
+script = ExtResource("1_config")
+pins = Array[ExtResource("2_pin")]([SubResource("Resource_bouton"), SubResource("Resource_led"), SubResource("Resource_gyrophare")])
