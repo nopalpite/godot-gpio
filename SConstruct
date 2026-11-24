@@ -94,13 +94,18 @@ if zig:
         env["TEMPFILEARGESCFUNC"] = lambda arg: str(arg).replace("\\", "/")
         env["MAXLINELENGTH"] = 8000
 
-env.Append(CPPPATH=["src/"])
+# Environnement propre à l'extension (ne force pas la recompilation de godot-cpp).
+lib_env = env.Clone()
+lib_env.Append(CPPPATH=["src/"])
+if zig:
+    # Active l'appel à __cxa_finalize au déchargement (voir src/register_types.cpp).
+    lib_env.Append(CPPDEFINES=["GPIO_ZIG_RUNTIME"])
 sources = Glob("src/*.cpp")
 
-library = env.SharedLibrary(
+library = lib_env.SharedLibrary(
     "project/addons/gpio/bin/libgpio{}.so".format(env["suffix"]),
     source=sources,
 )
 
-env.NoCache(library)
+lib_env.NoCache(library)
 Default(library)
