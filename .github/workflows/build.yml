@@ -53,23 +53,33 @@ jobs:
         run: |
           file project/addons/gpio/bin/*.so
           nm -D --defined-only project/addons/gpio/bin/*.so | grep gpio_library_init
+      # Si le quota de stockage d'artefacts de l'organisation est plein, l'envoi échoue :
+      # on ne fait pas échouer la compilation pour autant (seul le job « paquet » en dépend).
       - uses: actions/upload-artifact@v4
+        continue-on-error: true
         with:
           name: bin-${{ matrix.arch }}-${{ matrix.target }}
           path: project/addons/gpio/bin/*.so
           if-no-files-found: error
+          retention-days: 3
 
   test:
     name: Test headless (simulation, extension chargée)
-    needs: [lint, build]
+    needs: lint
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
         with:
-          pattern: bin-*
-          path: project/addons/gpio/bin
-          merge-multiple: true
+          submodules: recursive
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install scons "ziglang==${ZIG_VERSION}"
+      # Compilé ici plutôt que téléchargé : le test ne dépend pas du stockage d'artefacts.
+      - name: Compilation x86_64 debug
+        run: |
+          ZIG="$(python -c 'import os, ziglang; print(os.path.join(os.path.dirname(ziglang.__file__), "zig"))')"
+          scons platform=linux arch=x86_64 target=template_debug zig="$ZIG" -j"$(nproc)"
       - name: Installation de Godot
         run: |
           wget -q "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-stable/Godot_v${GODOT_VERSION}-stable_linux.x86_64.zip"
@@ -84,7 +94,7 @@ jobs:
 
   package:
     name: Paquet de l'addon
-    needs: test
+    needs: [build, test]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -99,3 +109,4 @@ jobs:
           # Le zip contient le dossier « gpio/ » : à copier dans res://addons/.
           path: project/addons
           if-no-files-found: error
+          retention-days: 30
