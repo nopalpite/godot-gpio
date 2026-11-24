@@ -1,0 +1,17 @@
+# Godot
+.godot/
+*.import.tmp
+
+# Compilation
+*.o
+*.os
+*.a
+*.so
+*.obj
+*.tmp
+.sconsign*.dblite
+compile_commands.json
+__pycache__/
+
+# Bibliothèques compilées : produites par la CI (artefact « addon-gpio »)
+project/addons/gpio/bin/
