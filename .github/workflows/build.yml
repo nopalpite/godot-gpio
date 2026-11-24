@@ -64,9 +64,13 @@ jobs:
           retention-days: 3
 
   test:
-    name: Test headless (simulation, extension chargée)
+    name: Test headless (${{ matrix.toolchain }})
     needs: lint
     runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        toolchain: [gcc, zig]
     env:
       # La glibc écrit ses erreurs fatales (ex. « free(): invalid pointer ») sur /dev/tty.
       LIBC_FATAL_STDERR_: "1"
@@ -81,8 +85,12 @@ jobs:
       # Compilé ici plutôt que téléchargé : le test ne dépend pas du stockage d'artefacts.
       - name: Compilation x86_64 debug
         run: |
-          ZIG="$(python -c 'import os, ziglang; print(os.path.join(os.path.dirname(ziglang.__file__), "zig"))')"
-          scons platform=linux arch=x86_64 target=template_debug zig="$ZIG" -j"$(nproc)"
+          if [ "${{ matrix.toolchain }}" = "zig" ]; then
+            ZIG="$(python -c 'import os, ziglang; print(os.path.join(os.path.dirname(ziglang.__file__), "zig"))')"
+            scons platform=linux arch=x86_64 target=template_debug zig="$ZIG" -j"$(nproc)"
+          else
+            scons platform=linux arch=x86_64 target=template_debug -j"$(nproc)"
+          fi
       - name: Installation de Godot
         run: |
           wget -q "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-stable/Godot_v${GODOT_VERSION}-stable_linux.x86_64.zip"
