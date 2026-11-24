@@ -1,0 +1,101 @@
+# Lint GDScript, compilation de la GDExtension (Linux x86_64 + arm64, debug + release),
+# test du projet d'exemple en headless, puis paquet de l'addon prêt à copier.
+name: Build
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+env:
+  GODOT_VERSION: "4.7.2"
+  GDTOOLKIT_VERSION: "4.5.0"
+  ZIG_VERSION: "0.17.1"
+
+jobs:
+  lint:
+    name: Lint GDScript
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install "gdtoolkit==${GDTOOLKIT_VERSION}"
+      - name: gdlint
+        run: gdlint project
+      - name: gdformat --check
+        run: gdformat --check project
+
+  build:
+    name: GDExtension ${{ matrix.arch }} ${{ matrix.target }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [x86_64, arm64]
+        target: [template_debug, template_release]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      # zig sert de compilateur croisé : même chaîne pour les deux architectures,
+      # glibc 2.28 visée (compatible avec toutes les versions récentes de Raspberry Pi OS).
+      - run: pip install scons "ziglang==${ZIG_VERSION}"
+      - name: Compilation
+        run: |
+          ZIG="$(python -c 'import os, ziglang; print(os.path.join(os.path.dirname(ziglang.__file__), "zig"))')"
+          scons platform=linux arch=${{ matrix.arch }} target=${{ matrix.target }} zig="$ZIG" -j"$(nproc)"
+      - name: Vérification du binaire
+        run: |
+          file project/addons/gpio/bin/*.so
+          nm -D --defined-only project/addons/gpio/bin/*.so | grep gpio_library_init
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bin-${{ matrix.arch }}-${{ matrix.target }}
+          path: project/addons/gpio/bin/*.so
+          if-no-files-found: error
+
+  test:
+    name: Test headless (simulation, extension chargée)
+    needs: [lint, build]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: bin-*
+          path: project/addons/gpio/bin
+          merge-multiple: true
+      - name: Installation de Godot
+        run: |
+          wget -q "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-stable/Godot_v${GODOT_VERSION}-stable_linux.x86_64.zip"
+          unzip -q "Godot_v${GODOT_VERSION}-stable_linux.x86_64.zip"
+          mv "Godot_v${GODOT_VERSION}-stable_linux.x86_64" godot
+      - name: Import du projet
+        run: ./godot --headless --path project --import
+      # Sur le runner, l'extension x86_64 est chargée mais il n'y a aucune puce GPIO :
+      # l'autoload doit passer en simulation et l'extension renvoyer des erreurs lisibles.
+      - name: Test
+        run: ./godot --headless --path project res://tests/test_simulation.tscn
+
+  package:
+    name: Paquet de l'addon
+    needs: test
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: bin-*
+          path: project/addons/gpio/bin
+          merge-multiple: true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: addon-gpio
+          # Le zip contient le dossier « gpio/ » : à copier dans res://addons/.
+          path: project/addons
+          if-no-files-found: error
