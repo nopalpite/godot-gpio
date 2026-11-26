@@ -9,7 +9,10 @@
 #include <dirent.h>
 #include <fcntl.h>
 #include <linux/gpio.h>
+#include <grp.h>
+#include <pwd.h>
 #include <sys/ioctl.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 #include <algorithm>
@@ -87,6 +90,50 @@ std::vector<ChipEntry> scan_chips() {
 	return chips;
 }
 
+bool process_in_group(gid_t p_gid) {
+	if (getegid() == p_gid) {
+		return true;
+	}
+	gid_t groups[256];
+	const int count = getgroups(256, groups);
+	for (int i = 0; i < count; i++) {
+		if (groups[i] == p_gid) {
+			return true;
+		}
+	}
+	return false;
+}
+
+// Message d'échec d'ouverture d'une puce. Pour un accès refusé, on regarde les vrais droits
+// du fichier : conseiller le groupe « gpio » n'a de sens que si c'est lui qui donne l'accès.
+String open_error_message(const std::string &p_path, int p_errno) {
+	const String context = "ouverture de " + to_godot(p_path.c_str());
+	struct stat st;
+	if ((p_errno != EACCES && p_errno != EPERM) || stat(p_path.c_str(), &st) != 0) {
+		return gpio_errno_message(context, p_errno);
+	}
+	const struct passwd *owner = getpwuid(st.st_uid);
+	const struct group *group = getgrgid(st.st_gid);
+	const String owner_name = owner != nullptr ? to_godot(owner->pw_name) : itos(st.st_uid);
+	const String group_name = group != nullptr ? to_godot(group->gr_name) : itos(st.st_gid);
+	char mode[8];
+	snprintf(mode, sizeof(mode), "%03o", static_cast<unsigned>(st.st_mode & 0777));
+	const String rights = owner_name + String(":") + group_name + gpio_u8(", droits ") + String(mode);
+	const String errno_text = String(" (errno ") + itos(p_errno) + String(")");
+
+	const bool group_grants_rw = (st.st_mode & 060) == 060;
+	if (group_grants_rw && !process_in_group(st.st_gid)) {
+		return context + gpio_u8(" : accès refusé (") + rights +
+				gpio_u8(") : l'utilisateur doit faire partie du groupe « ") + group_name +
+				gpio_u8(" » (sudo usermod -aG ") + group_name + gpio_u8(" $USER, puis se reconnecter)") +
+				errno_text;
+	}
+	return context + gpio_u8(" : accès refusé (") + rights +
+			gpio_u8(") : puce réservée à root. Sans incidence si ce n'est pas la puce des broches "
+					"utilisées (ex. puce du firmware) ; sinon, donner l'accès par une règle udev") +
+			errno_text;
+}
+
 String describe_available(const std::vector<ChipEntry> &p_chips) {
 	if (p_chips.empty()) {
 		return "aucune puce /dev/gpiochip* sur cette machine";
@@ -162,7 +209,7 @@ TypedArray<Dictionary> GpioChip::list_chips() {
 		entry["label"] = to_godot(chip.label.c_str());
 		entry["lines"] = chip.lines;
 		if (chip.open_errno != 0) {
-			entry["error"] = gpio_errno_message("ouverture de " + to_godot(chip.path.c_str()), chip.open_errno);
+			entry["error"] = open_error_message(chip.path, chip.open_errno);
 		}
 		result.push_back(entry);
 	}
@@ -183,6 +230,7 @@ Error GpioChip::open(const String &p_chip) {
 
 	std::string target_path;
 	int access_errno = 0;
+	std::string access_path;
 	const std::vector<ChipEntry> chips = scan_chips();
 
 	if (wanted.begins_with("/")) {
@@ -193,6 +241,7 @@ Error GpioChip::open(const String &p_chip) {
 		for (const ChipEntry &chip : chips) {
 			if (chip.open_errno != 0) {
 				access_errno = chip.open_errno;
+				access_path = chip.path;
 				continue;
 			}
 			if (chip.label == wanted_std || chip.name == wanted_std) {
@@ -209,8 +258,7 @@ Error GpioChip::open(const String &p_chip) {
 	if (target_path.empty()) {
 		last_error = gpio_u8("puce GPIO « ") + wanted + gpio_u8(" » introuvable (") + describe_available(chips) + ")";
 		if (access_errno != 0) {
-			last_error += ". Certaines puces sont inaccessibles : " +
-					gpio_errno_message("ouverture", access_errno);
+			last_error += ". Certaines puces sont inaccessibles : " + open_error_message(access_path, access_errno);
 			return ERR_FILE_NO_PERMISSION;
 		}
 		return ERR_DOES_NOT_EXIST;
@@ -220,7 +268,7 @@ Error GpioChip::open(const String &p_chip) {
 	const int fd = open_chip(target_path, info);
 	if (fd < 0) {
 		const int err = errno;
-		last_error = gpio_errno_message("ouverture de " + to_godot(target_path.c_str()), err);
+		last_error = open_error_message(target_path, err);
 		if (err == ENOENT) {
 			last_error += " (" + describe_available(chips) + ")";
 			return ERR_DOES_NOT_EXIST;

@@ -137,8 +137,13 @@ ls -l /dev/gpiochip*            # crw-rw---- root gpio ...
 ```
 
 Pas besoin de root ni de démon. Si l'accès est refusé, chaque broche concernée signale
-une erreur explicite (« accès refusé : l'utilisateur doit faire partie du groupe
-« gpio » ») et le jeu continue.
+une erreur explicite, avec les vrais droits du fichier (« accès refusé (root:gpio,
+droits 660) : l'utilisateur doit faire partie du groupe « gpio » ») et le jeu continue.
+
+Sous **Ubuntu** (testé sur 26.04, Pi 4), la règle udev ne donne le groupe `gpio` qu'à la
+puce principale (`gpiochip0`, `pinctrl-bcm2711`). La seconde puce, `gpiochip1`, est
+l'extenseur du firmware (LED d'activité, caméra) : elle reste réservée à root, ce qui est
+normal et sans incidence pour les broches du connecteur.
 
 Outils utiles pour vérifier le câblage (paquet `gpiod`, sans rapport avec l'addon) :
 `gpiodetect` (liste des puces), `gpioinfo` (état des lignes ; celles de Godot
@@ -409,29 +414,35 @@ godot --headless --path project res://banc/test_materiel.tscn      # matériel i
 
 ## Ce qui a été testé, et ce qui ne l'a pas été
 
-Testé lors de la création :
+Testé **sur un vrai Raspberry Pi 4** (Model B Rev 1.1, Ubuntu 26.04, noyau 7.0, Godot
+4.7.2 arm64, bibliothèque debug), avec le banc de test : **79 OK, 0 KO**.
+
+- puce `pinctrl-bcm2711` ouverte par label, nom, chemin et numéro ; `find_line()` ;
+- écriture et relecture, valeur initiale, actif bas (entrée et sortie), drain ouvert,
+  source ouverte, pull-up et pull-down ;
+- fronts dans l'ordre et horodatés, filtres montant / descendant / aucun ; latence
+  écriture -> signal Godot de 0,46 ms en moyenne, 6,9 ms au pire ;
+- anti-rebond du noyau (rafales filtrées, changements lents transmis) ;
+- 100 réservations avec thread sans fuite de descripteurs ni de threads, ligne détruite
+  avec des fronts en attente, fermeture de Godot avec des lignes réservées ;
+- autoload `Gpio` sur le matériel : actions, `pulse` (199 ms mesurées pour 200),
+  `blink`, broche en double isolée, `shutdown()` ;
+- erreurs réelles : EBUSY, ligne hors limites, puce inaccessible (EACCES).
+
+Testé aussi :
 
 - gdlint et gdformat (gdtoolkit 4.5.0) : aucun problème ;
-- projet d'exemple et test headless avec Godot 4.7.2 **Windows** (extension absente) :
-  mode simulation, actions, touches de simulation, `set_pin` / `pulse` / `blink`,
-  broches inconnues, mode `NEVER` sans matériel (erreurs lisibles, aucun plantage) ;
-- même test avec Godot 4.7.2 **Linux x86_64** en CI, **extension chargée** (builds gcc et
-  zig) : `is_supported()`, `list_chips()` (vide sur le runner), erreurs d'ouverture et de
-  réservation lisibles et bien encodées, bascule automatique en simulation faute de
-  puce, mode `NEVER` (chaque broche en erreur, le reste continue), sortie propre ;
+- test headless du projet d'exemple et banc sous Godot 4.7.2 **Windows** (extension
+  absente, mode simulation) et **Linux x86_64** en CI (extension chargée, builds gcc et
+  zig, sans puce) ;
 - compilation des quatre variantes (x86_64 / arm64, debug / release), en local depuis
-  Windows avec zig et en CI ; binaires inspectés (architecture ELF, symbole
-  `gpio_library_init` exporté, libc++ liée statiquement, glibc 2.17 maximum requise) ;
-- sources de l'extension compilées sans avertissement en `-Wall -Wextra`, y compris la
-  variante « hors Linux » (stubs).
+  Windows avec zig et en CI.
 
-**Pas testé sur un vrai Raspberry Pi** (aucun Pi disponible) :
+**Pas encore testé** :
 
-- ouverture des puces `pinctrl-rp1` / `pinctrl-bcm2711`, réservation des lignes, lecture
-  et écriture, biais, actif bas, anti-rebond noyau, fronts et thread de surveillance
-  (aucune puce GPIO sur les machines de test, le code ioctl n'a donc jamais été exercé) ;
-- droits du groupe `gpio` et messages d'erreur réels (EACCES, EBUSY) ;
-- chargement du `.so` **arm64** par Godot (seul le x86_64 a été chargé), export arm64.
+- **Raspberry Pi 5** (puce `pinctrl-rp1`) et Raspberry Pi OS ;
+- bibliothèques **release** (il faut exporter le jeu avec les modèles d'export) ;
+- le conseil « ajouter au groupe » du message d'accès refusé (l'utilisateur du Pi de test
+  était déjà dans le groupe `gpio`) ;
+- composants réels : bouton avec rebonds mécaniques, LED, module relais, longs fils.
 
-Premier essai conseillé sur le Pi : le banc de test (voir « Tester sur un Raspberry Pi »),
-qui couvre tous ces points avec un simple fil entre deux broches.

@@ -177,19 +177,24 @@ func _test_extension() -> bool:
 	if chips.is_empty():
 		_add(Rapport.Status.IGNORE, "list_chips()", "aucune puce GPIO sur cette machine")
 		return false
+	# Une puce inaccessible n'est pas un échec en soi (ex. puce du firmware réservée à root
+	# sous Ubuntu) : seule compte la puce utilisée, vérifiée à l'ouverture.
 	var errors: int = 0
 	for chip: Dictionary in chips:
+		var detail: String = (
+			str(chip["error"])
+			if chip.has("error")
+			else "label « %s », %d lignes" % [chip.get("label", ""), int(chip.get("lines", 0))]
+		)
 		if chip.has("error"):
 			errors += 1
-			_add(Rapport.Status.KO, "puce %s" % chip.get("path", "?"), str(chip["error"]))
-		else:
-			_add(
-				Rapport.Status.INFO,
-				"puce %s" % chip.get("path", "?"),
-				"label « %s », %d lignes" % [chip.get("label", ""), int(chip.get("lines", 0))]
-			)
-	_check(errors == 0, "list_chips()", "%d puce(s), %d inaccessible(s)" % [chips.size(), errors])
-	return true
+		_add(Rapport.Status.INFO, "puce %s" % chip.get("path", "?"), detail)
+	_check(
+		errors < chips.size(),
+		"list_chips() : au moins une puce accessible",
+		"%d puce(s), %d inaccessible(s)" % [chips.size(), errors]
+	)
+	return errors < chips.size()
 
 
 func _test_chip() -> bool:
