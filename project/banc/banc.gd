@@ -6,8 +6,8 @@ const TEXT := """Test automatique : relier par un fil GPIO 23 (broche 16) et GPI
 Laisser GPIO 25 (broche 22) libre, reliée à rien. Durée : environ 15 secondes.
 Un rapport est écrit dans user://rapports/.
 
-Banc manuel : réserver n'importe quelle ligne en entrée ou en sortie
-pour essayer un bouton, une LED, un relais..."""
+Moniteur : le connecteur 40 broches en direct ; régler chaque broche en entrée
+ou en sortie pour essayer un bouton, une LED, un relais..."""
 
 
 func _ready() -> void:
@@ -27,7 +27,7 @@ func _ready() -> void:
 	help.text = TEXT
 	box.add_child(help)
 	box.add_child(_button("Test automatique", "res://banc/test_materiel.tscn"))
-	box.add_child(_button("Banc manuel", "res://banc/banc_manuel.tscn"))
+	box.add_child(_button("Moniteur GPIO", "res://banc/moniteur.tscn"))
 	var quit := Button.new()
 	quit.text = "Quitter"
 	quit.pressed.connect(get_tree().quit)

@@ -252,7 +252,7 @@ D'autres broches se choisissent en ligne de commande ou dans l'interface :
 ### Lancer le banc
 
 ```bash
-# Avec écran : menu (test automatique ou banc manuel)
+# Avec écran : menu (test automatique ou moniteur GPIO)
 ./godot --path ~/projet-gpio res://banc/banc.tscn
 
 # Sans écran, en SSH : code de sortie 0 = aucun échec
@@ -279,10 +279,34 @@ réservées : un code de sortie supérieur à 1 signalerait un plantage à la fe
 | Autoload `Gpio` | mode matériel, broche en double isolée, `set_pin` -> action Godot, `pulse`, `blink`, `shutdown()` |
 | Erreurs | EBUSY, ligne hors limites, puce inexistante |
 
-Le **banc manuel** (`res://banc/banc_manuel.tscn`) liste toutes les lignes de la puce et
-permet d'en réserver plusieurs, en entrée (tirage, fronts, anti-rebond, actif bas) ou en
-sortie (allumer, éteindre, impulsion, clignotement), avec la valeur en direct et le
-journal des fronts : pratique pour essayer un vrai bouton, une LED ou un module relais.
+### Le moniteur GPIO
+
+`res://banc/moniteur.tscn` affiche le connecteur 40 broches tel qu'il est sur la carte,
+avec l'état de chaque GPIO en direct : gris = libre, bleu = entrée, orange = sortie
+(allumée à 1), violet hachuré = ligne prise par un autre programme (par exemple les
+GPIO 7 et 8 quand le SPI est activé), rouge = erreur.
+
+Un clic sur une broche ouvre ses réglages : libre, entrée ou sortie, nom, tirage,
+anti-rebond, actif bas, mode de sortie. Une sortie s'allume, s'éteint, envoie une
+impulsion ou clignote ; une entrée affiche sa valeur, ses fronts, ses appuis et la durée
+du dernier appui. Une entrée peut **commander une sortie** (liaison, éventuellement
+inversée), sans écrire de code.
+
+**Exporter la config** enregistre les broches réglées dans un `gpio_config.tres`
+(`user://gpio_config.tres`, et `res://config/gpio_config_moniteur.tres` quand le projet
+est lancé avec l'éditeur), directement utilisable par l'autoload `Gpio` d'un jeu.
+
+Essai avec un vrai bouton et une vraie LED (câblage de la section « Câblage ») :
+
+```bash
+# Sur l'écran du Pi, ou en SSH vers sa session graphique Wayland :
+./godot --path ~/projet-gpio --rendering-method gl_compatibility     res://banc/moniteur.tscn -- --exemple
+```
+
+`--exemple` règle le bouton sur GPIO 17 (broche 11, vers la masse, pull-up, actif bas,
+anti-rebond 20 ms) et la LED sur GPIO 27 (broche 13, résistance de 330 Ω), et relie le
+bouton à la LED. Sur Pi 4, Godot passe de lui-même en OpenGL ES ; `gl_compatibility`
+est le moteur de rendu adapté au Pi.
 
 Hors Raspberry Pi (Windows, CI), le banc ignore les tests matériel et se termine avec le
 code 0 : la CI le lance ainsi à chaque push pour vérifier qu'il ne plante pas.
