@@ -459,7 +459,7 @@ godot --headless --path project res://banc/test_materiel.tscn      # matériel i
 ## Ce qui a été testé, et ce qui ne l'a pas été
 
 Testé **sur un vrai Raspberry Pi 4** (Model B Rev 1.1, Ubuntu 26.04, noyau 7.0, Godot
-4.7.2 arm64, bibliothèque debug), avec le banc de test : **79 OK, 0 KO**.
+4.7.2 arm64, bibliothèque debug), avec le banc de test : **89 OK, 0 KO**.
 
 - puce `pinctrl-bcm2711` ouverte par label, nom, chemin et numéro ; `find_line()` ;
 - écriture et relecture, valeur initiale, actif bas (entrée et sortie), drain ouvert,
@@ -467,6 +467,10 @@ Testé **sur un vrai Raspberry Pi 4** (Model B Rev 1.1, Ubuntu 26.04, noyau 7.0,
 - fronts dans l'ordre et horodatés, filtres montant / descendant / aucun ; latence
   écriture -> signal Godot de 0,46 ms en moyenne, 6,9 ms au pire ;
 - anti-rebond du noyau (rafales filtrées, changements lents transmis) ;
+- anti-rebond par échantillonnage : validation en 10,6 ms pour 10 ms demandés,
+  rafales filtrées, 300 ms d'impulsions parasites ignorées ; relâchement noyé dans
+  ces parasites validé en 13 ms (311 ms avec l'anti-rebond du noyau) ; confirmé à la
+  main avec un vrai bouton au bout de câbles longs ;
 - 100 réservations avec thread sans fuite de descripteurs ni de threads, ligne détruite
   avec des fronts en attente, fermeture de Godot avec des lignes réservées ;
 - autoload `Gpio` sur le matériel : actions, `pulse` (199 ms mesurées pour 200),
