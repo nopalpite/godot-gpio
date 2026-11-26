@@ -4,6 +4,7 @@ extends Control
 ##
 ##   godot --path project res://banc/moniteur.tscn
 ##   options : -- --exemple (bouton GPIO 17 + LED GPIO 27, reliés)
+##             -- --bouton=22 (GPIO du bouton de l'exemple, 17 par défaut)
 ##             -- --capture=/tmp/moniteur.png (capture d'écran après 2 s, puis quitte)
 ##
 ## Une entrée peut commander une sortie (liaison), et la configuration se sauvegarde en
@@ -74,6 +75,7 @@ var _chip_error: String = ""
 var _pins: Dictionary[int, PinState] = {}
 var _buttons: Dictionary[int, BrocheBouton] = {}
 var _selected: int = -1
+var _example_button: int = 17
 var _syncing: bool = false
 
 var _chip_label: Label
@@ -86,6 +88,7 @@ var _input_box: Control
 var _output_box: Control
 var _bias: OptionButton
 var _debounce: SpinBox
+var _filter: OptionButton
 var _active_low: CheckBox
 var _drive: OptionButton
 var _initial: CheckBox
@@ -108,6 +111,7 @@ class PinState:
 	var name: String = ""
 	var bias: int = 2
 	var debounce_ms: float = 20.0
+	var sampled: bool = true
 	var active_low: bool = false
 	var drive: int = 0
 	var initial: bool = false
@@ -233,7 +237,16 @@ func _apply(state: PinState) -> void:
 		state.error = _chip_error if not _chip_error.is_empty() else "pas de puce GPIO"
 		return
 	var line: RefCounted = null
-	if state.mode == Mode.INPUT:
+	if state.mode == Mode.INPUT and state.sampled and state.debounce_ms > 0.0:
+		line = _chip.call(
+			&"request_input_sampled",
+			state.offset,
+			state.bias,
+			roundi(state.debounce_ms * 1000.0),
+			state.active_low,
+			CONSUMER
+		)
+	elif state.mode == Mode.INPUT:
 		line = _chip.call(
 			&"request_input",
 			state.offset,
@@ -314,12 +327,13 @@ func _pulse(state: PinState) -> void:
 
 
 func _load_example() -> void:
+	var gpio: int = _example_button if _pins.has(_example_button) else 17
 	for state: PinState in _pins.values():
 		if state.mode != Mode.FREE:
 			state.mode = Mode.FREE
 			state.link = -1
 			_apply(state)
-	var button: PinState = _pins[17]
+	var button: PinState = _pins[gpio]
 	button.name = "bouton"
 	button.mode = Mode.INPUT
 	button.bias = 2
@@ -334,11 +348,21 @@ func _load_example() -> void:
 	_apply(button)
 	_write_log(
 		(
-			"Exemple chargé : bouton GPIO 17 (broche 11, vers la masse) commande la LED GPIO 27"
+			(
+				"Exemple chargé : bouton GPIO %d (broche %d, vers la masse) commande la LED GPIO 27"
+				% [gpio, _physical_of(gpio)]
+			)
 			+ " (broche 13, résistance 330 Ω vers la masse)."
 		)
 	)
-	_select(17)
+	_select(gpio)
+
+
+func _physical_of(gpio: int) -> int:
+	for i: int in HEADER.size():
+		if HEADER[i][1] == gpio:
+			return i + 1
+	return 0
 
 
 func _export_config() -> void:
@@ -356,6 +380,9 @@ func _export_config() -> void:
 			pin.direction = GpioPin.Direction.INPUT
 			pin.bias = state.bias as GpioPin.Bias
 			pin.debounce_ms = state.debounce_ms
+			pin.debounce_mode = (
+				GpioPin.DebounceMode.SAMPLED if state.sampled else GpioPin.DebounceMode.KERNEL
+			)
 			pin.action = pin.name
 		else:
 			pin.direction = GpioPin.Direction.OUTPUT
@@ -387,6 +414,9 @@ func _sorted_gpios() -> Array[int]:
 
 
 func _handle_arguments() -> void:
+	for argument: String in OS.get_cmdline_user_args():
+		if argument.begins_with("--bouton="):
+			_example_button = argument.trim_prefix("--bouton=").to_int()
 	for argument: String in OS.get_cmdline_user_args():
 		if argument == "--exemple":
 			_load_example()
@@ -482,6 +512,7 @@ func _select(gpio: int) -> void:
 		_mode_buttons[i].set_pressed_no_signal(i == state.mode)
 	_bias.select(state.bias)
 	_debounce.set_value_no_signal(state.debounce_ms)
+	_filter.select(0 if state.sampled else 1)
 	_active_low.set_pressed_no_signal(state.active_low)
 	_drive.select(state.drive)
 	_initial.set_pressed_no_signal(state.initial)
@@ -543,6 +574,7 @@ func _on_setting_changed(_value: Variant = null) -> void:
 		return
 	state.bias = _bias.get_selected_id()
 	state.debounce_ms = _debounce.value
+	state.sampled = _filter.get_selected_id() == 0
 	state.active_low = _active_low.button_pressed
 	state.drive = _drive.get_selected_id()
 	_apply(state)
@@ -725,6 +757,12 @@ func _build_panel(parent: Control) -> void:
 	_debounce.step = 1
 	_debounce.value_changed.connect(_on_setting_changed)
 	_input_box.add_child(_debounce)
+	_filter = _options(["par échantillonnage", "par le noyau"])
+	_filter.tooltip_text = (
+		"Échantillonnage : robuste aux parasites (câbles longs).\n"
+		+ "Noyau : horodatage précis, mais bloqué par les parasites."
+	)
+	_input_box.add_child(_filter)
 
 	_output_box = VBoxContainer.new()
 	_settings.add_child(_output_box)

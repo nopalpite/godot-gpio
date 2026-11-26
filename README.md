@@ -84,7 +84,8 @@ Chaque `GpioPin` décrit une broche :
 | `direction` | `INPUT` ou `OUTPUT`. |
 | `active_low` | Inverse la logique (1 = niveau électrique bas). |
 | `bias` *(entrée)* | `PULL_UP`, `PULL_DOWN`, `NONE` (résistance externe), `AS_IS`. |
-| `debounce_ms` *(entrée)* | Anti-rebond **fait par le noyau**, en ms. 20 ms convient à la plupart des boutons. |
+| `debounce_ms` *(entrée)* | Durée de stabilité exigée avant de valider un changement, en ms. 20 ms convient à la plupart des boutons. 0 = fronts bruts. |
+| `debounce_mode` *(entrée)* | `SAMPLED` (par défaut) : l'extension lit le niveau toutes les millisecondes, insensible aux parasites. `KERNEL` : anti-rebond du noyau, horodatage précis mais bloqué par les parasites (voir ci-dessous). |
 | `action` *(entrée)* | Action Godot déclenchée en pressed / released. |
 | `sim_key` *(entrée)* | Touche qui simule l'entrée en mode simulation. |
 | `initial_value` *(sortie)* | Valeur au démarrage. |
@@ -125,6 +126,17 @@ diode de roue libre sur les charges inductives. Beaucoup de modules relais sont 
 (4,7 kΩ vers 3,3 V) que le tirage interne (environ 50 kΩ), garder l'anti-rebond, et
 idéalement un optocoupleur si les boutons sont loin du Pi.
 
+**Pourquoi l'anti-rebond par échantillonnage est le mode par défaut.** Mesuré sur un
+Pi 4 avec un bouton au bout de câbles longs et le seul tirage interne : environ
+10 000 impulsions parasites par seconde, si brèves que le noyau ne voit que des fronts
+montants, alors que 297 lectures du niveau sur 300 donnent la bonne valeur.
+L'anti-rebond du noyau attend 20 ms *sans aucun front* : chaque impulsion le relance,
+et le bouton reste « appuyé » indéfiniment. En mode `SAMPLED`, un thread de
+l'extension lit le niveau toutes les millisecondes et le passe dans un intégrateur
+(un compteur borné qui monte à 1 et descend à 0) : une lecture fausse isolée ne fait
+que retarder d'un échantillon. C'est ce qui rend tolérantes les bibliothèques qui
+lisent le niveau (RPi.GPIO, gpiozero) : le câblage bruité ne se voyait pas.
+
 ## Droits d'accès : le groupe `gpio`
 
 Sur Raspberry Pi OS, `/dev/gpiochip*` appartient au groupe **`gpio`**. L'utilisateur qui
@@ -157,7 +169,7 @@ apparaissent avec le consumer `godot`).
 | Label de la puce | `pinctrl-bcm2711` | `pinctrl-rp1` |
 | Numéro de la puce | `gpiochip0` | `gpiochip0` sur les noyaux récents, `gpiochip4` sur les premiers noyaux Bookworm |
 | Numéros de lignes | BCM 0 à 27 sur le connecteur | identiques (BCM 0 à 27) |
-| Anti-rebond | logiciel, dans le noyau | logiciel, dans le noyau |
+| Anti-rebond du noyau | logiciel, dans le noyau | logiciel, dans le noyau |
 
 Le numéro de la puce du Pi 5 a changé d'une version de noyau à l'autre : c'est pour ça
 que l'addon ouvre les puces **par leur label**. Avec `default_chip = "auto"`, la même
@@ -275,6 +287,7 @@ réservées : un code de sortie supérieur à 1 signalerait un plantage à la fe
 | Tirages | pull-up et pull-down sur la broche flottante |
 | Fronts | 20 fronts dans l'ordre, horodatages croissants, latence, filtres montant / descendant / aucun, actif bas |
 | Anti-rebond | rafales filtrées (1 front ou aucun), changements lents tous transmis |
+| Échantillonnage | `request_input_sampled()`, délai de validation, rafales, impulsions parasites ignorées, relâchement validé malgré 300 ms de parasites (comparé au noyau) |
 | Robustesse | 100 réservations avec thread, ligne détruite avec des fronts en attente, pas de fuite de descripteurs ni de threads |
 | Autoload `Gpio` | mode matériel, broche en double isolée, `set_pin` -> action Godot, `pulse`, `blink`, `shutdown()` |
 | Erreurs | EBUSY, ligne hors limites, puce inexistante |
@@ -344,7 +357,9 @@ car la classe n'existe pas hors Linux) :
 var chip := GpioChip.new()
 if chip.open("pinctrl-rp1") != OK:
 	push_error(chip.get_last_error())
-var bouton: GpioLine = chip.request_input(17, GpioChip.BIAS_PULL_UP, 20000, GpioChip.EDGE_BOTH, true)
+# Échantillonnage (robuste aux parasites) : 20 ms de stabilité, actif bas.
+var bouton: GpioLine = chip.request_input_sampled(17, GpioChip.BIAS_PULL_UP, 20000, true)
+# Ou fronts du noyau : chip.request_input(17, GpioChip.BIAS_PULL_UP, 20000, GpioChip.EDGE_BOTH, true)
 bouton.edge_detected.connect(func(rising: bool, timestamp_ns: int) -> void: print(rising))
 var led: GpioLine = chip.request_output(27, false)
 led.set_value(true)
@@ -352,12 +367,17 @@ led.set_value(true)
 
 - `GpioChip` : `list_chips()` (statique), `is_supported()` (statique), `open(chip)`,
   `close()`, `get_label()`, `get_path()`, `get_line_count()`, `get_line_info(offset)`,
-  `find_line("GPIO17")`, `request_input(...)`, `request_output(...)`, `get_last_error()`.
-- `GpioLine` : `get_value()` (0, 1 ou -1 en erreur), `set_value(bool)`, `release()`,
+  `find_line("GPIO17")`, `request_input(...)`,
+  `request_input_sampled(offset, bias, debounce_us, active_low, consumer, period_us)`,
+  `request_output(...)`, `get_last_error()`.
+- `GpioLine` : `get_value()` (0, 1 ou -1 en erreur ; valeur validée en mode
+  échantillonné), `set_value(bool)`, `is_sampled()`, `release()`,
   signaux `edge_detected(rising, timestamp_ns)` et `line_error(message)`.
 
 La ligne reste réservée tant que l'objet `GpioLine` existe ; `release()` (ou sa
-destruction) arrête le thread des fronts et ferme le descripteur.
+destruction) arrête le thread (fronts ou échantillonnage) et ferme le descripteur.
+En mode échantillonné, l'horodatage de `edge_detected` est l'instant de validation
+(horloge monotone), pas celui du front électrique.
 
 ## Compiler la GDExtension
 

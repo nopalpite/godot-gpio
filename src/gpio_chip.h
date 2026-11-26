@@ -49,7 +49,9 @@ private:
 	String last_error;
 
 	Ref<GpioLine> _request(int p_offset, uint64_t p_flags, int p_debounce_us, bool p_has_output_value,
-			bool p_output_value, const String &p_consumer, bool p_edges, bool p_active_low);
+			bool p_output_value, const String &p_consumer, bool p_edges, bool p_active_low,
+			int p_sample_debounce_us = -1, int p_sample_period_us = 0);
+	static uint64_t _input_flags(Bias p_bias, bool p_active_low);
 	String _describe_line_user(int p_offset);
 
 protected:
@@ -80,6 +82,9 @@ public:
 
 	Ref<GpioLine> request_input(int p_offset, Bias p_bias = BIAS_AS_IS, int p_debounce_us = 0,
 			Edge p_edges = EDGE_BOTH, bool p_active_low = false, const String &p_consumer = "godot");
+	// Entrée surveillée par échantillonnage (voir GpioLine) : robuste aux parasites.
+	Ref<GpioLine> request_input_sampled(int p_offset, Bias p_bias = BIAS_AS_IS, int p_debounce_us = 20000,
+			bool p_active_low = false, const String &p_consumer = "godot", int p_period_us = 1000);
 	Ref<GpioLine> request_output(int p_offset, bool p_initial_value = false, bool p_active_low = false,
 			Drive p_drive = DRIVE_PUSH_PULL, const String &p_consumer = "godot");
 

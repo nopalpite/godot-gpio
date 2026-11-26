@@ -8,6 +8,18 @@ extends Resource
 
 enum Direction { INPUT, OUTPUT }
 
+## Façon de surveiller une entrée.
+enum DebounceMode {
+	## L'extension lit le niveau toutes les millisecondes et valide un changement
+	## après [member debounce_ms] de niveau stable. Insensible aux parasites très
+	## brefs (câbles longs, tirage interne faible) : le choix sûr pour un bouton.
+	SAMPLED,
+	## Fronts détectés par le noyau, anti-rebond du noyau. Horodatage précis, mais
+	## chaque impulsion parasite relance l'anti-rebond : avec des câbles bruités,
+	## l'entrée peut rester bloquée.
+	KERNEL,
+}
+
 ## Même ordre que [code]GpioChip.Bias[/code] dans la GDExtension.
 enum Bias {
 	AS_IS,  ## Ne touche pas au réglage actuel de la broche.
@@ -31,8 +43,10 @@ enum Bias {
 
 @export_group("Entrée")
 @export var bias: Bias = Bias.PULL_UP
-## Anti-rebond appliqué par le noyau, en millisecondes (0 = aucun).
+## Durée de stabilité exigée avant de valider un changement, en millisecondes
+## (0 = aucun anti-rebond : fronts bruts du noyau).
 @export_range(0.0, 1000.0, 0.1, "suffix:ms") var debounce_ms: float = 20.0
+@export var debounce_mode: DebounceMode = DebounceMode.SAMPLED
 ## Action Godot déclenchée (pressed / released) quand l'entrée change.
 @export var action: StringName = &""
 ## Touche qui simule cette entrée en mode simulation.

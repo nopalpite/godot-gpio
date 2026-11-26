@@ -16,6 +16,7 @@ extends Control
 const EdgeLog := preload("res://banc/journal_fronts.gd")
 const Rapport := preload("res://banc/rapport.gd")
 const Systeme := preload("res://banc/systeme.gd")
+const TestEchantillonnage := preload("res://banc/test_echantillonnage.gd")
 const CONSUMER := "banc-gpio"
 const AUTO_CHIP_LABELS: Array[String] = ["pinctrl-rp1", "pinctrl-bcm2711", "pinctrl-bcm2835"]
 
@@ -91,6 +92,8 @@ func _run_all() -> void:
 		await _test_edges()
 		_report.begin("Anti-rebond du noyau")
 		await _test_debounce()
+		_report.begin("Anti-rebond par échantillonnage")
+		await TestEchantillonnage.new(self).run()
 		_report.begin("Robustesse")
 		await _test_robustness()
 		_report.begin("Autoload Gpio sur le matériel")

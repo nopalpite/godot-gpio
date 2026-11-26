@@ -331,15 +331,25 @@ func _open_line(state: _PinState) -> void:
 	var line: RefCounted = null
 	if pin.is_input():
 		var debounce_us: int = roundi(pin.debounce_ms * 1000.0)
-		line = chip.call(
-			&"request_input",
-			pin.line,
-			int(pin.bias),
-			debounce_us,
-			EDGE_BOTH,
-			pin.active_low,
-			config.consumer
-		)
+		if pin.debounce_mode == GpioPin.DebounceMode.SAMPLED and debounce_us > 0:
+			line = chip.call(
+				&"request_input_sampled",
+				pin.line,
+				int(pin.bias),
+				debounce_us,
+				pin.active_low,
+				config.consumer
+			)
+		else:
+			line = chip.call(
+				&"request_input",
+				pin.line,
+				int(pin.bias),
+				debounce_us,
+				EDGE_BOTH,
+				pin.active_low,
+				config.consumer
+			)
 	else:
 		line = chip.call(
 			&"request_output",

@@ -173,6 +173,10 @@ void GpioChip::_bind_methods() {
 			D_METHOD("request_input", "offset", "bias", "debounce_us", "edges", "active_low", "consumer"),
 			&GpioChip::request_input, DEFVAL(BIAS_AS_IS), DEFVAL(0), DEFVAL(EDGE_BOTH), DEFVAL(false),
 			DEFVAL("godot"));
+	ClassDB::bind_method(D_METHOD("request_input_sampled", "offset", "bias", "debounce_us", "active_low", "consumer",
+								 "period_us"),
+			&GpioChip::request_input_sampled, DEFVAL(BIAS_AS_IS), DEFVAL(20000), DEFVAL(false), DEFVAL("godot"),
+			DEFVAL(1000));
 	ClassDB::bind_method(D_METHOD("request_output", "offset", "initial_value", "active_low", "drive", "consumer"),
 			&GpioChip::request_output, DEFVAL(false), DEFVAL(false), DEFVAL(DRIVE_PUSH_PULL), DEFVAL("godot"));
 
@@ -401,7 +405,8 @@ String GpioChip::_describe_line_user(int p_offset) {
 }
 
 Ref<GpioLine> GpioChip::_request(int p_offset, uint64_t p_flags, int p_debounce_us, bool p_has_output_value,
-		bool p_output_value, const String &p_consumer, bool p_edges, bool p_active_low) {
+		bool p_output_value, const String &p_consumer, bool p_edges, bool p_active_low, int p_sample_debounce_us,
+		int p_sample_period_us) {
 	Ref<GpioLine> line;
 #ifdef __linux__
 	if (chip_fd < 0) {
@@ -448,7 +453,10 @@ Ref<GpioLine> GpioChip::_request(int p_offset, uint64_t p_flags, int p_debounce_
 	line.instantiate();
 	const GpioLine::Direction direction =
 			(p_flags & GPIO_V2_LINE_FLAG_OUTPUT) ? GpioLine::DIRECTION_OUTPUT : GpioLine::DIRECTION_INPUT;
-	if (line->setup(request.fd, p_offset, direction, p_edges, p_active_low, label) != OK) {
+	const Error setup_error = p_sample_debounce_us >= 0
+			? line->setup_sampled(request.fd, p_offset, p_active_low, label, p_sample_debounce_us, p_sample_period_us)
+			: line->setup(request.fd, p_offset, direction, p_edges, p_active_low, label);
+	if (setup_error != OK) {
 		last_error = line->get_last_error();
 		line->release();
 		return Ref<GpioLine>();
@@ -463,15 +471,17 @@ Ref<GpioLine> GpioChip::_request(int p_offset, uint64_t p_flags, int p_debounce_
 	(void)p_consumer;
 	(void)p_edges;
 	(void)p_active_low;
+	(void)p_sample_debounce_us;
+	(void)p_sample_period_us;
 	last_error = gpio_unsupported_message();
 #endif
 	return line;
 }
 
-Ref<GpioLine> GpioChip::request_input(int p_offset, Bias p_bias, int p_debounce_us, Edge p_edges, bool p_active_low,
-		const String &p_consumer) {
+uint64_t GpioChip::_input_flags(Bias p_bias, bool p_active_low) {
+	uint64_t flags = 0;
 #ifdef __linux__
-	uint64_t flags = GPIO_V2_LINE_FLAG_INPUT;
+	flags = GPIO_V2_LINE_FLAG_INPUT;
 	switch (p_bias) {
 		case BIAS_DISABLED:
 			flags |= GPIO_V2_LINE_FLAG_BIAS_DISABLED;
@@ -485,14 +495,33 @@ Ref<GpioLine> GpioChip::request_input(int p_offset, Bias p_bias, int p_debounce_
 		default:
 			break;
 	}
+	if (p_active_low) {
+		flags |= GPIO_V2_LINE_FLAG_ACTIVE_LOW;
+	}
+#else
+	(void)p_bias;
+	(void)p_active_low;
+#endif
+	return flags;
+}
+
+Ref<GpioLine> GpioChip::request_input_sampled(int p_offset, Bias p_bias, int p_debounce_us, bool p_active_low,
+		const String &p_consumer, int p_period_us) {
+	const int debounce_us = p_debounce_us > 0 ? p_debounce_us : 0;
+	const int period_us = p_period_us >= 100 ? p_period_us : 100;
+	return _request(p_offset, _input_flags(p_bias, p_active_low), 0, false, false, p_consumer, false, p_active_low,
+			debounce_us, period_us);
+}
+
+Ref<GpioLine> GpioChip::request_input(int p_offset, Bias p_bias, int p_debounce_us, Edge p_edges, bool p_active_low,
+		const String &p_consumer) {
+#ifdef __linux__
+	uint64_t flags = _input_flags(p_bias, p_active_low);
 	if (p_edges == EDGE_RISING || p_edges == EDGE_BOTH) {
 		flags |= GPIO_V2_LINE_FLAG_EDGE_RISING;
 	}
 	if (p_edges == EDGE_FALLING || p_edges == EDGE_BOTH) {
 		flags |= GPIO_V2_LINE_FLAG_EDGE_FALLING;
-	}
-	if (p_active_low) {
-		flags |= GPIO_V2_LINE_FLAG_ACTIVE_LOW;
 	}
 	return _request(p_offset, flags, p_debounce_us, false, false, p_consumer, p_edges != EDGE_NONE, p_active_low);
 #else
