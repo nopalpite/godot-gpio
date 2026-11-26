@@ -1,5 +1,6 @@
 # Lint GDScript, compilation de la GDExtension (Linux x86_64 + arm64, debug + release),
-# test du projet d'exemple en headless, puis paquet de l'addon prêt à copier.
+# test du projet d'exemple en headless, paquet de l'addon prêt à copier,
+# et release GitHub sur un tag vX.Y.Z.
 name: Build
 
 on:
@@ -160,3 +161,59 @@ jobs:
           path: project
           if-no-files-found: error
           retention-days: 30
+
+  # Sur un tag « vX.Y.Z » : release GitHub avec l'addon et le projet de test zippés.
+  # Le tag doit correspondre à la version de plugin.cfg (v1.2.0 <-> version="1.2.0").
+  release:
+    name: Release
+    needs: [lint, package]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tag et version du plugin
+        id: version
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          version="$(sed -n 's/^version="\(.*\)"$/\1/p' project/addons/gpio/plugin.cfg)"
+          if [[ "$tag" != "v${version}" ]]; then
+            echo "::error::Le tag $tag ne correspond pas à la version de plugin.cfg ($version) : attendu v${version}."
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          # Une version avec suffixe (1.2.0-rc1) est publiée en préversion.
+          if [[ "$version" == *-* ]]; then echo "prerelease=--prerelease" >> "$GITHUB_OUTPUT"; fi
+      - uses: actions/download-artifact@v4
+        with:
+          name: addon-gpio
+          path: dist/addon
+      - uses: actions/download-artifact@v4
+        with:
+          name: projet-gpio
+          path: dist/projet
+      - name: Archives
+        run: |
+          v="${{ steps.version.outputs.version }}"
+          # Addon : le zip contient « addons/gpio/ », à décompresser à la racine du projet Godot.
+          mkdir -p pkg/addon/addons pkg/projet
+          cp -r dist/addon/gpio pkg/addon/addons/
+          cp README.md pkg/addon/addons/gpio/README.md
+          (cd pkg/addon && zip -qr "../../godot-gpio-${v}.zip" addons)
+          # Projet d'exemple + banc de test, prêt à copier sur le Pi.
+          cp -r dist/projet pkg/projet/projet-gpio
+          (cd pkg/projet && zip -qr "../../projet-gpio-${v}.zip" projet-gpio)
+          unzip -l "godot-gpio-${v}.zip" | grep -E "\.so$"
+          [[ "$(unzip -l "godot-gpio-${v}.zip" | grep -c '\.so$')" -eq 4 ]]
+          sha256sum ./*.zip > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+      - name: Publication
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          v="${{ steps.version.outputs.version }}"
+          gh release create "$GITHUB_REF_NAME" \
+            "godot-gpio-${v}.zip" "projet-gpio-${v}.zip" SHA256SUMS.txt \
+            --title "godot-gpio ${v}" --generate-notes --verify-tag \
+            ${{ steps.version.outputs.prerelease }}

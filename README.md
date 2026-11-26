@@ -53,10 +53,12 @@ if Gpio.get_pin(&"capteur"):         # lecture instantanée
 
 ## Installation
 
-1. Copier le dossier `addons/gpio/` dans `res://addons/` du projet.
-   Les bibliothèques compilées (`addons/gpio/bin/*.so`) viennent de l'artefact
-   **`addon-gpio`** de la CI GitHub (ou d'une compilation locale, voir plus bas).
-   Sans elles, l'addon tourne en simulation.
+1. Télécharger `godot-gpio-X.Y.Z.zip` depuis les
+   [releases](https://github.com/nopalpite/godot-gpio/releases) et le décompresser à la
+   racine du projet Godot : il contient `addons/gpio/`, bibliothèques compilées
+   comprises (`addons/gpio/bin/*.so`, Linux x86_64 et arm64, debug et release).
+   À défaut : l'artefact **`addon-gpio`** de la CI, ou une compilation locale (voir plus
+   bas). Sans les bibliothèques, l'addon tourne en simulation.
 2. *Projet → Paramètres du projet → Extensions* : activer **GPIO**. Le plugin ajoute
    l'autoload `Gpio` et le réglage `gpio/config_path` (par défaut
    `res://config/gpio_config.tres`).
@@ -414,8 +416,28 @@ d'exemple en headless sous Godot Linux avec l'extension chargée (sans puce GPIO
 fois compilée avec gcc et une fois avec zig, puis publie l'artefact `addon-gpio` prêt à
 copier.
 
-Le job « paquet » dépend du stockage d'artefacts GitHub de l'organisation : si son quota
-est plein, il échoue (les compilations et les tests, eux, n'en dépendent pas).
+Le job « paquet » dépend du stockage d'artefacts GitHub : si son quota est plein (dépôt
+privé), il échoue (les compilations et les tests, eux, n'en dépendent pas).
+
+### Publier une release
+
+Un tag `vX.Y.Z` poussé sur GitHub déclenche, après le lint, les compilations, les tests
+et le paquet, la création d'une release avec :
+
+- `godot-gpio-X.Y.Z.zip` : `addons/gpio/` avec les quatre bibliothèques (le job échoue
+  s'il en manque une) et le README ;
+- `projet-gpio-X.Y.Z.zip` : le projet d'exemple et le banc de test, à copier sur le Pi ;
+- `SHA256SUMS.txt`, et des notes générées à partir des commits.
+
+Le tag doit correspondre à la version de `project/addons/gpio/plugin.cfg`, sinon la
+release est refusée. Une version avec suffixe (`1.1.0-rc1`) est publiée en préversion.
+
+```sh
+# 1. Mettre à jour version="1.1.0" dans project/addons/gpio/plugin.cfg, commiter, pousser.
+# 2. Taguer ce commit et pousser le tag :
+git tag -a v1.1.0 -m "godot-gpio 1.1.0"
+git push origin v1.1.0
+```
 
 ### Builds zig et builds gcc
 
