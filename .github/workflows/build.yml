@@ -116,6 +116,9 @@ jobs:
             fi
             exit 1
           }
+      # Sans puce GPIO, le banc matériel doit tout ignorer, sans planter (code 0).
+      - name: Banc matériel (sans puce)
+        run: ./godot --headless --path project res://banc/test_materiel.tscn
 
   package:
     name: Paquet de l'addon
@@ -148,5 +151,12 @@ jobs:
           name: addon-gpio
           # Le zip contient le dossier « gpio/ » : à copier dans res://addons/.
           path: project/addons
+          if-no-files-found: error
+          retention-days: 30
+      # Projet complet (exemple + banc de test + bibliothèques) à copier sur le Pi.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: projet-gpio
+          path: project
           if-no-files-found: error
           retention-days: 30

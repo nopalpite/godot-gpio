@@ -22,6 +22,7 @@ Cible : **Raspberry Pi OS 64 bits** (Bookworm ou plus récent), **Pi 4 et Pi 5**
 - [Différences entre Pi 4 et Pi 5](#différences-entre-pi-4-et-pi-5)
 - [Mode simulation et panneau de diagnostic](#mode-simulation-et-panneau-de-diagnostic)
 - [Erreurs : ne jamais planter](#erreurs--ne-jamais-planter)
+- [Tester sur un Raspberry Pi : le banc de test](#tester-sur-un-raspberry-pi--le-banc-de-test)
 - [API](#api)
 - [Compiler la GDExtension](#compiler-la-gdextension)
 - [Hors périmètre de la V1 et pistes](#hors-périmètre-de-la-v1-et-pistes)
@@ -205,6 +206,82 @@ add_child(panel)
 Exemple de message : `réservation de la ligne 17 de pinctrl-rp1 : ligne déjà réservée
 par un autre programme ou une autre broche (errno 16) (utilisée par « python3 »)`.
 
+## Tester sur un Raspberry Pi : le banc de test
+
+Le projet d'exemple contient un **banc de test** (`project/banc/`) qui exerce tout le
+chemin matériel : puce, lignes, tirages, actif bas, drain ouvert, fronts, anti-rebond du
+noyau, fuites de descripteurs et de threads, autoload `Gpio`, erreurs réelles (EBUSY...).
+
+### Câblage : un seul fil
+
+Le test automatique n'a besoin d'aucun composant : une sortie est reliée par un fil à une
+entrée, et le Pi s'observe lui-même.
+
+```
+broche 16 (GPIO 23, sortie) ──┐
+                              │  un fil femelle-femelle
+broche 18 (GPIO 24, entrée) ──┘
+
+broche 22 (GPIO 25) : reliée à RIEN (sert à tester les résistances de tirage)
+```
+
+D'autres broches se choisissent en ligne de commande ou dans l'interface :
+`--sortie=N --entree=N --flottante=N` (`-1` pour ne pas tester les tirages),
+`--puce=auto|pinctrl-rp1|gpiochip0|0`.
+
+### Préparer le Pi
+
+1. Raspberry Pi OS **64 bits**, utilisateur dans le groupe `gpio` (voir plus haut).
+2. Télécharger Godot 4.7.2 **Linux arm64** (`Godot_v4.7.2-stable_linux.arm64.zip`) depuis
+   les releases GitHub de Godot, le dézipper et le rendre exécutable (`chmod +x`).
+3. Récupérer l'artefact **`projet-gpio`** de la dernière exécution de la CI (onglet
+   *Actions* du dépôt) : c'est le dossier `project/` complet, bibliothèques comprises.
+   Le dézipper, par exemple dans `~/projet-gpio`.
+4. Importer le projet une première fois (deux fois si Godot plante en quittant le premier
+   import : limite connue, voir plus bas) :
+
+```bash
+./godot --headless --path ~/projet-gpio --import
+```
+
+### Lancer le banc
+
+```bash
+# Avec écran : menu (test automatique ou banc manuel)
+./godot --path ~/projet-gpio res://banc/banc.tscn
+
+# Sans écran, en SSH : code de sortie 0 = aucun échec
+./godot --headless --path ~/projet-gpio res://banc/test_materiel.tscn
+./godot --headless --path ~/projet-gpio res://banc/test_materiel.tscn -- --sortie=5 --entree=6
+```
+
+Le test dure une quinzaine de secondes. Chaque ligne est `OK`, `KO`, `IGNORÉ` ou `INFO`,
+et un rapport texte est écrit dans
+`~/.local/share/godot/app_userdata/GPIO - exemple/rapports/` : c'est ce fichier qu'il faut
+transmettre en cas de problème. Le programme quitte volontairement avec des lignes encore
+réservées : un code de sortie supérieur à 1 signalerait un plantage à la fermeture.
+
+| Section | Ce qui est vérifié |
+|---|---|
+| Environnement | carte, noyau, groupe `gpio`, extension chargée, `list_chips()` |
+| Puce GPIO | ouverture par label, nom, chemin et numéro ; `close()` ; `get_line_info()` ; `find_line()` |
+| Sortie -> entrée | 40 écritures relues, relecture d'une sortie, infos des lignes, écriture refusée sur une entrée, `release()` |
+| Modes de sortie | valeur initiale, actif bas en sortie et en entrée, drain ouvert, source ouverte |
+| Tirages | pull-up et pull-down sur la broche flottante |
+| Fronts | 20 fronts dans l'ordre, horodatages croissants, latence, filtres montant / descendant / aucun, actif bas |
+| Anti-rebond | rafales filtrées (1 front ou aucun), changements lents tous transmis |
+| Robustesse | 100 réservations avec thread, ligne détruite avec des fronts en attente, pas de fuite de descripteurs ni de threads |
+| Autoload `Gpio` | mode matériel, broche en double isolée, `set_pin` -> action Godot, `pulse`, `blink`, `shutdown()` |
+| Erreurs | EBUSY, ligne hors limites, puce inexistante |
+
+Le **banc manuel** (`res://banc/banc_manuel.tscn`) liste toutes les lignes de la puce et
+permet d'en réserver plusieurs, en entrée (tirage, fronts, anti-rebond, actif bas) ou en
+sortie (allumer, éteindre, impulsion, clignotement), avec la valeur en direct et le
+journal des fronts : pratique pour essayer un vrai bouton, une LED ou un module relais.
+
+Hors Raspberry Pi (Windows, CI), le banc ignore les tests matériel et se termine avec le
+code 0 : la CI le lance ainsi à chaque push pour vérifier qu'il ne plante pas.
+
 ## API
 
 ### Autoload `Gpio` (`GpioService`)
@@ -314,6 +391,7 @@ premier plantage et exige que le second import réussisse.
 ```bash
 godot --headless --path project --import
 godot --headless --path project res://tests/test_simulation.tscn   # code de sortie 0 = OK
+godot --headless --path project res://banc/test_materiel.tscn      # matériel ignoré hors Pi
 ```
 
 ## Hors périmètre de la V1 et pistes
@@ -355,5 +433,5 @@ Testé lors de la création :
 - droits du groupe `gpio` et messages d'erreur réels (EACCES, EBUSY) ;
 - chargement du `.so` **arm64** par Godot (seul le x86_64 a été chargé), export arm64.
 
-Premier essai conseillé sur le Pi : lancer le projet d'exemple avec le panneau de
-diagnostic, vérifier « GPIO : matériel », puis `gpioinfo` pour voir les lignes `godot`.
+Premier essai conseillé sur le Pi : le banc de test (voir « Tester sur un Raspberry Pi »),
+qui couvre tous ces points avec un simple fil entre deux broches.
